@@ -13,6 +13,9 @@
 
 -- ==================================================================================
 
+import qualified Data.Word
+type Byte = Data.Word.Word8
+
 -- may need to keep track of rightmost pointer position, so we know how much to print and in order to see the range of a calculation
 -- helper to keep track of tape size in performant way (without calling length xs everytime we go right)
 -- pointer position, rightmost pointer position (so far)
@@ -30,7 +33,7 @@ rightB (x, y) = (x+1, max y (x+1))
 -- [1 2 3 4 5 6]
 --      ^
 -- corresponds to Tape [3, 2, 1] [4, 5, 6] _
-data Tape = Tape [Int] [Int] Bound
+data Tape = Tape [Byte] [Byte] Bound
 
 createTape :: Tape
 createTape = Tape [0] [0 | _ <- [1..]] ((0, 0) :: Bound)
@@ -48,14 +51,17 @@ ptrPos (Tape xs ys b) = fst b
 tapeLength (Tape xs ys b) = snd b
 
 -- read from pointer position
-readTape :: Tape -> Int
+readTape :: Tape -> Byte
 readTape (Tape (ptr:xs) ys b) = ptr
 
 -- write to pointer position
-writeTape :: Int -> Tape -> Tape
+writeTape :: Byte -> Tape -> Tape
 writeTape n (Tape (ptr:xs) ys b) = Tape (n:xs) ys b
 
 instance Show Tape where
   show (Tape (ptr:xs) ys b) = show (reverse xs) ++ " " ++ show ptr ++ " " ++ show (take 10 ys)
+
+
+
 
 
