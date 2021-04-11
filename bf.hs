@@ -33,11 +33,13 @@ rightB (x, y) = (x+1, max y (x+1))
 -- corresponds to Tape [3, 2, 1] [4, 5, 6] _
 data Tape = Tape [Byte] [Byte] Bound
 
+zeroes = [0 | _ <- [1..]]
+
 emptyTape :: Tape
-emptyTape = Tape [0] [0 | _ <- [1..]] ((0, 0) :: Bound)
+emptyTape = Tape [0] zeroes ((0, 0) :: Bound)
 
 initTape :: [Byte] -> Tape
-initTape (x:xs) = Tape [x] xs ((0, length xs) :: Bound)
+initTape (x:xs) = Tape [x] (xs++zeroes) ((0, length xs) :: Bound)
 
 left :: Tape -> Tape
 left (Tape [] _ _) = error "Cannot shift tape to left: Is at origin. Bad initialization."
@@ -104,27 +106,130 @@ seekRight = seekAny right ']' '['
 seekLeft :: Tape -> Tape
 seekLeft  = seekAny left  '[' ']'
 
---initTape :: [Byte] -> Tape
 initStringTape :: [Char] -> Tape
 initStringTape = initTape . map (toEnum . ord)
 
 
-data TuringMachine = TuringMachine {dataTape :: Tape, insTape :: Tape} deriving Show
+data TM = TM {dataTape :: Tape, insTape :: Tape}
+
+instance Show TM where
+  show (TM d i) = show d ++ "\n" ++ show' i
+
+testtm = TM (initTape [2,3]) (initStringTape "[->+<]")
 
 -- read instruction from insTape
 -- run instruction: affects state and IO
 -- 
 
---newtype State s a = State {runstate :: s -> (a, s)}
+-- s :: TM, a :: Char/()/...
+newtype State s a = State {runState :: s -> (a, s)}
 
+-- the function is the data constructor of the type State
+state :: (s -> (a, s)) -> State s a
+state = State
 
+instance Functor (State s) where
+  fmap = liftM
 
+instance Applicative (State s) where
+  pure = return
+  (<*>) = ap
 
+instance Monad (State s) where
+  return x = state (\s -> (x, s)) 
+  p >>= k = state $ \ s0 ->
+    let (x, s1) = runState p s0
+    in runState (k x) s1  
 
+-- State TM or State Tape? ...
 
+-- define functions on Tape as 
+-- f :: TM -> (a, TM)
 
+fRight :: TM -> ((), TM)
+fRight (TM d i) = (() , TM (right d) i)
+sRight = state fRight
 
+fLeft :: TM -> ((), TM)
+fLeft (TM d i) = ((), TM (left d) i)
+sLeft = state fLeft
 
+fInc :: TM -> ((), TM)
+fInc (TM d i) = ((), TM (inc d) i)
+sInc = state fInc
+
+fDec :: TM -> ((), TM)
+fDec (TM d i) = ((), TM (dec d) i)
+sDec = state fDec
+
+fOutp :: TM -> (Byte, TM)
+fOutp tm = (readTape $ dataTape tm, tm)
+sOutp = state fOutp
+
+fInp :: Byte -> TM -> ((), TM)
+fInp byte (TM d i) = ((), TM (writeTape byte d) i)
+sInp byte = state (fInp byte)
+
+fFwd :: TM -> ((), TM)
+fFwd (TM d i)
+  | isZero d  = ((), TM d (seekRight i))
+  | otherwise = ((), (TM d i))
+sFwd = state fFwd
+
+fBwd :: TM -> ((), TM)
+fBwd (TM d i)
+  | not $ isZero d = ((), TM d (seekLeft i))
+  | otherwise = ((), (TM d i))
+sBwd = state fBwd
+
+--read instruction
+fReadInstr :: TM -> (Byte, TM)
+fReadInstr tm = (readTape $ insTape tm, tm)
+sReadInstr = state fReadInstr
+
+--next instruction
+fNext :: TM -> ((), TM)
+fNext (TM d i) = ((), TM d (right i))
+sNext = state fNext
+
+things :: State TM [Byte] 
+things = do
+  sInp 1
+  sRight
+  sInp 2
+  sRight
+  sInp 3
+  sRight
+  x1 <- sOutp
+  sLeft
+  x2 <- sOutp
+  sLeft
+  x3 <- sOutp
+  sLeft
+  x4 <- sOutp
+  return [x1,x2,x3,x4]
+
+stepTM :: State TM ()
+stepTM = do
+  instr <- sReadInstr
+  case chr . fromEnum $ instr of 
+    '>' -> sRight
+    '<' -> sLeft
+    '+' -> sInc
+    '-' -> sDec
+    '.' -> undefined
+    ',' -> undefined
+    '[' -> sFwd
+    ']' -> sBwd
+    otherwise -> return ()
+  sNext
+  return ()
+
+runTM :: State TM [()]
+runTM = replicateM 18 stepTM
+
+-- to run:
+-- runState runTM testtm 
 
 
 
