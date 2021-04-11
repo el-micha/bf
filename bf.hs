@@ -12,6 +12,7 @@
 
 
 -- ==================================================================================
+import Control.Monad
 import Data.Char (ord, chr)
 import Data.Word (Word8)
 type Byte = Word8
@@ -90,26 +91,31 @@ show' (Tape (x:xx) yy b) = reverse xs ++ " " ++ [ptr] ++ " " ++ take (snd b - fs
 -- Instruction a type which is represented by the 8 bf chars, but also is a state transformer on the (dtape, itape) tuple
 
 -- find matching ], assuming program is syntactically correct, i.e., there IS a matching ] AND the tape points to a [ (charOther)
--- same with [ and left, so parametrized:
-seekRight t = go 0 (right t)
+-- same with [ and left, so parametrized. result points to the bracket, so this needs a right/left afterwards, like every other instr.
+seekAny dir charMatch charOther t = go 0 (dir t)
   where go n t
-          | n == 0 && isChar ']' t = right t
-          | isChar ']' t           = go (n - 1) (right t)
-          | isChar '[' t           = go (n + 1) (right t)
-          | otherwise              = go n (right t)
+          | n == 0 && isChar charMatch t = t
+          | isChar charMatch t           = go (n - 1) (dir t)
+          | isChar charOther t           = go (n + 1) (dir t)
+          | otherwise                    = go n (dir t)
 
--- seekLeft is NOT symmetrical, so repeat some code :/
-seekLeft t = go 0 (left t)
-  where go n t
-          | n == 0 && isChar '[' t = right t -- this is the difference. we STILL jump to the right of the matching bracket.
-          | isChar '[' t           = go (n - 1) (left t)
-          | isChar ']' t           = go (n + 1) (left t)
-          | otherwise              = go n (left t)
+seekRight :: Tape -> Tape
+seekRight = seekAny right ']' '['
+seekLeft :: Tape -> Tape
+seekLeft  = seekAny left  '[' ']'
 
 --initTape :: [Byte] -> Tape
 initStringTape :: [Char] -> Tape
 initStringTape = initTape . map (toEnum . ord)
 
+
+data TuringMachine = TuringMachine {dataTape :: Tape, insTape :: Tape} deriving Show
+
+-- read instruction from insTape
+-- run instruction: affects state and IO
+-- 
+
+--newtype State s a = State {runstate :: s -> (a, s)}
 
 
 
