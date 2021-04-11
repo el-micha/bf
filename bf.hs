@@ -12,13 +12,13 @@
 
 
 -- ==================================================================================
-
-import qualified Data.Word
-type Byte = Data.Word.Word8
+import Data.Char (ord, chr)
+import Data.Word (Word8)
+type Byte = Word8
 
 -- may need to keep track of rightmost pointer position, so we know how much to print and in order to see the range of a calculation
 -- helper to keep track of tape size in performant way (without calling length xs everytime we go right)
--- pointer position, rightmost pointer position (so far)
+-- (pointer position, tape length so far)
 type Bound = (Int, Int)
 leftB :: Bound -> Bound
 leftB (x, y) = (x-1, y)
@@ -26,17 +26,17 @@ leftB (x, y) = (x-1, y)
 rightB :: Bound -> Bound
 rightB (x, y) = (x+1, max y (x+1))
 
-
--- test tape.. may suck
-
--- pointer is head of first tape. left of pointer is t1[1], right of pointer is t2[0]
+-- pointer is head of first list. left of pointer is t1[1], right of pointer is t2[0]
 -- [1 2 3 4 5 6]
 --      ^
 -- corresponds to Tape [3, 2, 1] [4, 5, 6] _
 data Tape = Tape [Byte] [Byte] Bound
 
-createTape :: Tape
-createTape = Tape [0] [0 | _ <- [1..]] ((0, 0) :: Bound)
+emptyTape :: Tape
+emptyTape = Tape [0] [0 | _ <- [1..]] ((0, 0) :: Bound)
+
+initTape :: [Byte] -> Tape
+initTape (x:xs) = Tape [x] xs ((0, length xs) :: Bound)
 
 left :: Tape -> Tape
 left (Tape [] _ _) = error "Cannot shift tape to left: Is at origin. Bad initialization."
@@ -46,7 +46,9 @@ left (Tape (x:xs) ys b) = Tape xs (x:ys) (leftB b)
 right :: Tape -> Tape
 right (Tape xs (y:ys) b) = Tape (y:xs) ys (rightB b)
 
+-- not performant
 ptrPosition (Tape xs ys b) = (length xs) - 1
+-- better
 ptrPos (Tape xs ys b) = fst b
 tapeLength (Tape xs ys b) = snd b
 
@@ -54,12 +56,69 @@ tapeLength (Tape xs ys b) = snd b
 readTape :: Tape -> Byte
 readTape (Tape (ptr:xs) ys b) = ptr
 
+-- is byte at ptr 0?
+isZero :: Tape -> Bool
+isZero = (==0) . readTape
+
+isChar :: Char -> Tape -> Bool
+isChar c = (==c) . chr . fromEnum . readTape
+
 -- write to pointer position
 writeTape :: Byte -> Tape -> Tape
 writeTape n (Tape (ptr:xs) ys b) = Tape (n:xs) ys b
 
+--increment, decrement
+increment :: Tape -> Tape
+increment (Tape (x:xs) y b) = Tape ((x+1):xs) y b
+decrement :: Tape -> Tape
+decrement (Tape (x:xs) y b) = Tape ((x-1):xs) y b
+inc = increment
+dec = decrement
+
 instance Show Tape where
-  show (Tape (ptr:xs) ys b) = show (reverse xs) ++ " " ++ show ptr ++ " " ++ show (take 10 ys)
+  show (Tape (ptr:xs) ys b) = show (reverse xs) ++ " " ++ show ptr ++ " " ++ show (take (snd b - fst b) ys)
+
+
+-- =============================================================
+-- instruction Tape: reuse tape but add some functions
+-- Instruction a type which is represented by the 8 bf chars, but also is a state transformer on the (dtape, itape) tuple
+
+-- find matching ], assuming program is syntactically correct, i.e., there IS a matching ]
+seekRight :: Tape -> Tape
+seekRight t = go 0 (right t)
+  where go n t
+          | n == 0 && isChar ']' t = right t
+          | isChar ']' t           = go (n - 1) (right t)
+          | isChar '[' t           = go (n + 1) (right t)
+          | otherwise              = go n (right t)
+
+seekAny dir char' t = go 0 (dir t)
+  where go n t
+          | n == 0 && isChar ']' t = dir t
+          | isChar char' t         = go (n - 1) (dir t)
+          | isChar char' t         = go (n + 1) (dir t)
+          | otherwise              = go n (dir t)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
