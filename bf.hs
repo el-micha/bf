@@ -78,27 +78,34 @@ dec = decrement
 instance Show Tape where
   show (Tape (ptr:xs) ys b) = show (reverse xs) ++ " " ++ show ptr ++ " " ++ show (take (snd b - fst b) ys)
 
+-- for the instruction tape
+show' (Tape (x:xx) yy b) = reverse xs ++ " " ++ [ptr] ++ " " ++ take (snd b - fst b) ys
+  where ptr = f x
+        xs  = map f xx
+        ys  = map f yy
+        f   = chr . fromEnum
 
 -- =============================================================
 -- instruction Tape: reuse tape but add some functions
 -- Instruction a type which is represented by the 8 bf chars, but also is a state transformer on the (dtape, itape) tuple
 
--- find matching ], assuming program is syntactically correct, i.e., there IS a matching ]
+-- find matching ], assuming program is syntactically correct, i.e., there IS a matching ] AND the tape points to a [ (charOther)
+-- same with [ and left, so parametrized:
+seekAny dir charMatch charOther t = go 0 (dir t)
+  where go n t
+          | n == 0 && isChar charMatch t = dir t
+          | isChar charMatch t           = go (n - 1) (dir t)
+          | isChar charOther t           = go (n + 1) (dir t)
+          | otherwise                    = go n (dir t)
+
 seekRight :: Tape -> Tape
-seekRight t = go 0 (right t)
-  where go n t
-          | n == 0 && isChar ']' t = right t
-          | isChar ']' t           = go (n - 1) (right t)
-          | isChar '[' t           = go (n + 1) (right t)
-          | otherwise              = go n (right t)
+seekRight = seekAny right ']' '['
+seekLeft :: Tape -> Tape
+seekLeft = seekAny left '[' ']'
 
-seekAny dir char' t = go 0 (dir t)
-  where go n t
-          | n == 0 && isChar ']' t = dir t
-          | isChar char' t         = go (n - 1) (dir t)
-          | isChar char' t         = go (n + 1) (dir t)
-          | otherwise              = go n (dir t)
-
+--initTape :: [Byte] -> Tape
+initStringTape :: [Char] -> Tape
+initStringTape = initTape . map (toEnum . ord)
 
 
 
