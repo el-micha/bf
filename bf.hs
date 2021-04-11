@@ -91,17 +91,20 @@ show' (Tape (x:xx) yy b) = reverse xs ++ " " ++ [ptr] ++ " " ++ take (snd b - fs
 
 -- find matching ], assuming program is syntactically correct, i.e., there IS a matching ] AND the tape points to a [ (charOther)
 -- same with [ and left, so parametrized:
-seekAny dir charMatch charOther t = go 0 (dir t)
+seekRight t = go 0 (right t)
   where go n t
-          | n == 0 && isChar charMatch t = dir t
-          | isChar charMatch t           = go (n - 1) (dir t)
-          | isChar charOther t           = go (n + 1) (dir t)
-          | otherwise                    = go n (dir t)
+          | n == 0 && isChar ']' t = right t
+          | isChar ']' t           = go (n - 1) (right t)
+          | isChar '[' t           = go (n + 1) (right t)
+          | otherwise              = go n (right t)
 
-seekRight :: Tape -> Tape
-seekRight = seekAny right ']' '['
-seekLeft :: Tape -> Tape
-seekLeft = seekAny left '[' ']'
+-- seekLeft is NOT symmetrical, so repeat some code :/
+seekLeft t = go 0 (left t)
+  where go n t
+          | n == 0 && isChar '[' t = right t -- this is the difference. we STILL jump to the right of the matching bracket.
+          | isChar '[' t           = go (n - 1) (left t)
+          | isChar ']' t           = go (n + 1) (left t)
+          | otherwise              = go n (left t)
 
 --initTape :: [Byte] -> Tape
 initStringTape :: [Char] -> Tape
