@@ -179,35 +179,47 @@ fNext :: TM -> ((), TM)
 fNext (TM d i) = ((), TM d (right i))
 sNext = state fNext
 
-stepTM' = do
-  sRight
-  sRight
+-- check if instruction tape is at the end
+fCheck :: TM -> (Bool, TM)
+fCheck (TM d i) = ((check i), TM d i)
+  where check tape = (readTape tape) == 0
+sCheck = state fCheck
 
 --stepTM' :: State TM (Maybe Char)
 --stepTM' = do
 --  instr <- sReadInstr
 
-stepTM :: State TM Char
-stepTM = do
-  instr <- sReadInstr
+chooseAction instr = 
   case chr . fromEnum $ instr of 
     '>' -> sRight
     '<' -> sLeft
     '+' -> sInc
     '-' -> sDec
-    '.' -> undefined --sOutp
-    ',' -> undefined --sInp
+    '.' -> return () --sOutp
+    ',' -> return () --sInp
     '[' -> sFwd
     ']' -> sBwd
-    otherwise -> return ()
-  sNext
-  return '.'
+    _   -> return ()
 
-runTM :: State TM [Char]
-runTM = replicateM 18 stepTM
+stepTM :: State TM Char
+stepTM = do
+  instr <- sReadInstr
+  let next = chooseAction instr -- get statetransformer encoded by this char
+  next -- run that statetransformer
+  sNext -- shift instruction tape pointer to right
+  return (chr . fromEnum $ instr)
 
+stepAndCheckTM = do
+  stepTM
+  ended <- sCheck
+  when (not ended) $ do 
+    stepAndCheckTM
+
+--  if ended then return ' ' 
+--  else do stepAndCheckTM
+  
 -- to run:
--- runState runTM testtm 
+-- runState stepAndCheckTM testtm 
 
 
 
