@@ -185,6 +185,10 @@ fCheck (TM d i) = ((check i), TM d i)
   where check tape = (readTape tape) == 0
 sCheck = state fCheck
 
+sCheckNot = do 
+  res <- sCheck
+  return (not res)
+
 --stepTM' :: State TM (Maybe Char)
 --stepTM' = do
 --  instr <- sReadInstr
@@ -215,14 +219,32 @@ stepAndCheckTM = do
   when (not ended) $ do 
     stepAndCheckTM
 
+-- untilM :: Monad m => m a -> m Bool -> m [a]
+
+
+
 --  if ended then return ' ' 
 --  else do stepAndCheckTM
   
 -- to run:
 -- runState stepAndCheckTM testtm 
 
-
-
+-- from Control.Monad.Loops
+whileM :: Monad m => m Bool -> m a -> m [a]
+whileM = whileM'
+-- |Execute an action repeatedly as long as the given boolean expression
+-- returns True. The condition is evaluated before the loop body.
+-- Collects the results into an arbitrary 'MonadPlus' value.
+whileM' :: (Monad m, MonadPlus f) => m Bool -> m a -> m (f a)
+whileM' p f = go
+    where go = do
+            x <- p
+            if x
+                then do
+                        x  <- f
+                        xs <- go
+                        return (return x `mplus` xs)
+                else return mzero
 
 
 
