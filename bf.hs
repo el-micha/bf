@@ -1,7 +1,12 @@
 import Control.Monad
 import Data.Char (ord, chr)
 import Data.Word (Word8)
-type Byte = Word8
+
+-- Implementation without IO. Basecase for future IO extension with MonadTransformers. 
+
+-- ============================================================================
+-- Data types for data and instruction tapes and their operations
+-- ============================================================================
 
 -- keep track of tape length with tuple (pointer position, tape length so far)
 type Bound = (Int, Int)
@@ -11,10 +16,11 @@ rightB :: Bound -> Bound
 rightB (x, y) = (x+1, max y (x+1))
 
 -- a type for both the data tape and the instruction tape. 
--- pointer is head of first list. left of pointer is t1[1], right of pointer is t2[0]
+-- pointer is head of first list. left of pointer is field1[1], right of pointer is field2[0]
 -- [1 2 3 4 5 6]
 --      ^
 -- corresponds to Tape [3, 2, 1] [4, 5, 6] (2, 5)
+type Byte = Word8
 data Tape = Tape [Byte] [Byte] Bound
 
 zeroes = [0 | _ <- [1..]]
@@ -54,9 +60,11 @@ writeTape n (Tape (ptr:xs) ys b) = Tape (n:xs) ys b
 
 --increment, decrement the byte at ptr
 increment :: Tape -> Tape
-increment (Tape (x:xs) y b) = Tape ((x+1):xs) y b
+increment (Tape (ptr:xs) y b) = Tape ((ptr+1):xs) y b
+
 decrement :: Tape -> Tape
-decrement (Tape (x:xs) y b) = Tape ((x-1):xs) y b
+decrement (Tape (ptr:xs) y b) = Tape ((ptr-1):xs) y b
+
 inc = increment
 dec = decrement
 
@@ -70,11 +78,11 @@ show' (Tape (x:xx) yy b) = reverse xs ++ " " ++ [ptr] ++ " " ++ take (snd b - fs
         ys  = map f yy
         f   = chr . fromEnum
 
--- =============================================================
--- instruction Tape: reuse tape but add some functions
+-- ============================================================================
+-- Instruction Tape: reuse tape but add some functions
 
 -- find matching ], assuming program is syntactically correct, i.e., there IS a matching ] AND the tape points to a [ 
--- same with [ and left, so parametrized. result points to the bracket, so this needs a right/left afterwards, like every other instr.
+-- same with [ and left, so parametrized. result points to the bracket, so this needs a right/left shift afterwards, like every other instr.
 seekAny dir charMatch charOther t = go 0 (dir t)
   where go n t
           | n == 0 && isChar charMatch t = t
@@ -84,6 +92,7 @@ seekAny dir charMatch charOther t = go 0 (dir t)
 
 seekRight :: Tape -> Tape
 seekRight = seekAny right ']' '['
+
 seekLeft :: Tape -> Tape
 seekLeft  = seekAny left  '[' ']'
 
@@ -99,6 +108,10 @@ instance Show TM where
 
 testtm = TM (initTape [2,7]) (initStringTape "[->+<]")
 testtm2 = TM emptyTape (initStringTape "++++++++[>++++[>++>+++>+++>+<<<<-]>+>+>->>+[<]<-]>>.>---.+++++++..+++.>>.<-.<.+++.------.--------.>>+.>++.")
+
+-- ============================================================================
+-- Put the data into a stateful context using State (-transformers) 
+-- ============================================================================
 
 -- TM state transformers
 newtype State s a = State {runState :: s -> (a, s)}
@@ -121,7 +134,18 @@ instance Monad (State s) where
     let (x, s1) = runState p s0
     in runState (k x) s1  
 
+-- ============================================================================
+-- The brainfuck operations are stateful
+-- ============================================================================
+
+-- let the monadic functions return effects. can be extended as necessary
+data Effect = None | Result Byte
+
+isNone None = True
+isNone _    = False
+
 -- these seem a bit verbose.. is this necessary? is there a better way?
+
 -- shift data tape
 fRight :: TM -> (Effect, TM)
 fRight (TM d i) = (None , TM (right d) i)
@@ -162,6 +186,8 @@ fBwd (TM d i)
   | otherwise = (None, (TM d i))
 sBwd = state fBwd
 
+-- ============================================================================
+
 --read instruction from instr tape
 fReadInstr :: TM -> (Byte, TM)
 fReadInstr tm = (readTape $ insTape tm, tm)
@@ -177,13 +203,20 @@ fCheck :: TM -> (Bool, TM)
 fCheck (TM d i) = ((check i), TM d i)
   where check tape = (readTape tape) == 0
 sCheck = state fCheck
+
 sCheckNot = do 
   res <- sCheck
   return (not res)
 
+-- ============================================================================
+-- Putting it together: Run brainfuck turing machine step by step, 
+-- collecting potential results (Effect)
+-- ============================================================================
+
 -- from Control.Monad.Loops
 whileM :: Monad m => m Bool -> m a -> m [a]
 whileM = whileM'
+
 whileM' :: (Monad m, MonadPlus f) => m Bool -> m a -> m (f a)
 whileM' p f = go
   where go = do
@@ -192,17 +225,10 @@ whileM' p f = go
           then do
             x  <- f
             xs <- go
-            return (xs `mplus` return x)
+            return (return x `mplus` xs)
           else return mzero
 
--- let the monadic functions return effects. can be extended as necessary
-data Effect = None | Result Byte
-isNone None = True
-isNone _    = False
-fromResult (Result c) = c
-fromResult _ = error "None has no result"
-
--- from instruction char, resolve which action to take next.
+-- from instruction character, resolve which action to take next.
 chooseAction :: Enum a => a -> State TM Effect
 chooseAction instr = 
   case chr . fromEnum $ instr of 
@@ -211,12 +237,12 @@ chooseAction instr =
     '+' -> sInc
     '-' -> sDec
     '.' -> sOutp --sOutp
-    ',' -> return None --sInp
+    ',' -> return None --sInp -- to be combined with IO...
     '[' -> sFwd
     ']' -> sBwd
     _   -> return None
 
--- run the current step of the program
+-- run the current step of the brainfuck program
 stepTM :: State TM Effect
 stepTM = do
   instr <- sReadInstr
@@ -226,29 +252,16 @@ stepTM = do
   return res
 
 -- combine a list of possibly empty effects into a string
-unpack :: [Effect] -> [Char]
-unpack ms = go "" ms 
+combineEffects :: [Effect] -> [Char]
+combineEffects ms = go "" ms 
   where
     go str [] = str
     go str ((None):xs) = go str xs
-    go str ((Result byte):xs) = go ((chr . fromEnum $ byte):str) xs
+    go str ((Result byte):xs) = go (str ++ [(chr . fromEnum $ byte)]) xs
 
 -- run a tm and print its result and states
-runTM tm = (unpack (fst tup), (snd tup)) 
+runTM tm = (combineEffects (fst tup), (snd tup)) 
   where
     tup = runState (whileM sCheckNot stepTM) tm
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
