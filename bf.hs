@@ -95,15 +95,15 @@ initStringTape = initTape . map (toEnum . ord)
 data TM = TM {dataTape :: Tape, insTape :: Tape}
 
 instance Show TM where
-  show (TM d i) = show d ++ "\n" ++ show' i
+  show (TM d i) = "\n" ++ show d ++ "\n" ++ show' i
 
-testtm = TM (initTape [2,3]) (initStringTape "[->+<]")
+testtm = TM (initTape [2,7]) (initStringTape "[->+<]")
 testtm2 = TM emptyTape (initStringTape "++++++++[>++++[>++>+++>+++>+<<<<-]>+>+>->>+[<]<-]>>.>---.+++++++..+++.>>.<-.<.+++.------.--------.>>+.>++.")
 
 -- TM state transformers
 newtype State s a = State {runState :: s -> (a, s)}
 
--- the function is the data constructor of the type State
+-- State data constructor proxy
 state :: (s -> (a, s)) -> State s a
 state = State
 
@@ -121,52 +121,45 @@ instance Monad (State s) where
     let (x, s1) = runState p s0
     in runState (k x) s1  
 
--- State TM or State Tape and then have 2 separate states?
-
--- define functions on TM as 
--- f :: TM -> (a, TM)
--- so they form a State TM a
-
 -- these seem a bit verbose.. is this necessary? is there a better way?
--- TODO: they need to return NOTHING, not (). next instruction is unknown, so the return type is unknown -> Maybe
 -- shift data tape
-fRight :: TM -> ((), TM)
-fRight (TM d i) = (() , TM (right d) i)
+fRight :: TM -> (Effect, TM)
+fRight (TM d i) = (None , TM (right d) i)
 sRight = state fRight
 
-fLeft :: TM -> ((), TM)
-fLeft (TM d i) = ((), TM (left d) i)
+fLeft :: TM -> (Effect, TM)
+fLeft (TM d i) = (None, TM (left d) i)
 sLeft = state fLeft
 
 -- increment byte at ptr on data tape
-fInc :: TM -> ((), TM)
-fInc (TM d i) = ((), TM (inc d) i)
+fInc :: TM -> (Effect, TM)
+fInc (TM d i) = (None, TM (inc d) i)
 sInc = state fInc
 
-fDec :: TM -> ((), TM)
-fDec (TM d i) = ((), TM (dec d) i)
+fDec :: TM -> (Effect, TM)
+fDec (TM d i) = (None, TM (dec d) i)
 sDec = state fDec
 
 -- read or write byte from/to data tape
-fOutp :: TM -> (Byte, TM)
-fOutp tm = (readTape $ dataTape tm, tm)
+fOutp :: TM -> (Effect, TM)
+fOutp tm = (Result (readTape $ dataTape tm), tm)
 sOutp = state fOutp
 
-fInp :: Byte -> TM -> ((), TM)
-fInp byte (TM d i) = ((), TM (writeTape byte d) i)
+fInp :: Byte -> TM -> (Effect, TM)
+fInp byte (TM d i) = (None, TM (writeTape byte d) i)
 sInp byte = state (fInp byte)
 
 -- seek the next [ or the previous ]
-fFwd :: TM -> ((), TM)
+fFwd :: TM -> (Effect, TM)
 fFwd (TM d i)
-  | isZero d  = ((), TM d (seekRight i))
-  | otherwise = ((), (TM d i))
+  | isZero d  = (None, TM d (seekRight i))
+  | otherwise = (None, (TM d i))
 sFwd = state fFwd
 
-fBwd :: TM -> ((), TM)
+fBwd :: TM -> (Effect, TM)
 fBwd (TM d i)
-  | not $ isZero d = ((), TM d (seekLeft i))
-  | otherwise = ((), (TM d i))
+  | not $ isZero d = (None, TM d (seekLeft i))
+  | otherwise = (None, (TM d i))
 sBwd = state fBwd
 
 --read instruction from instr tape
@@ -184,67 +177,69 @@ fCheck :: TM -> (Bool, TM)
 fCheck (TM d i) = ((check i), TM d i)
   where check tape = (readTape tape) == 0
 sCheck = state fCheck
-
 sCheckNot = do 
   res <- sCheck
   return (not res)
 
---stepTM' :: State TM (Maybe Char)
---stepTM' = do
---  instr <- sReadInstr
+-- from Control.Monad.Loops
+whileM :: Monad m => m Bool -> m a -> m [a]
+whileM = whileM'
+whileM' :: (Monad m, MonadPlus f) => m Bool -> m a -> m (f a)
+whileM' p f = go
+  where go = do
+          x <- p
+          if x
+          then do
+            x  <- f
+            xs <- go
+            return (xs `mplus` return x)
+          else return mzero
 
+-- let the monadic functions return effects. can be extended as necessary
+data Effect = None | Result Byte
+isNone None = True
+isNone _    = False
+fromResult (Result c) = c
+fromResult _ = error "None has no result"
+
+-- from instruction char, resolve which action to take next.
+chooseAction :: Enum a => a -> State TM Effect
 chooseAction instr = 
   case chr . fromEnum $ instr of 
     '>' -> sRight
     '<' -> sLeft
     '+' -> sInc
     '-' -> sDec
-    '.' -> return () --sOutp
-    ',' -> return () --sInp
+    '.' -> sOutp --sOutp
+    ',' -> return None --sInp
     '[' -> sFwd
     ']' -> sBwd
-    _   -> return ()
+    _   -> return None
 
-stepTM :: State TM Char
+-- run the current step of the program
+stepTM :: State TM Effect
 stepTM = do
   instr <- sReadInstr
   let next = chooseAction instr -- get statetransformer encoded by this char
-  next -- run that statetransformer
+  res <- next -- run that statetransformer
   sNext -- shift instruction tape pointer to right
-  return (chr . fromEnum $ instr)
+  return res
 
-stepAndCheckTM = do
-  stepTM
-  ended <- sCheck
-  when (not ended) $ do 
-    stepAndCheckTM
+-- combine a list of possibly empty effects into a string
+unpack :: [Effect] -> [Char]
+unpack ms = go "" ms 
+  where
+    go str [] = str
+    go str ((None):xs) = go str xs
+    go str ((Result byte):xs) = go ((chr . fromEnum $ byte):str) xs
 
--- untilM :: Monad m => m a -> m Bool -> m [a]
+-- run a tm and print its result and states
+runTM tm = (unpack (fst tup), (snd tup)) 
+  where
+    tup = runState (whileM sCheckNot stepTM) tm
 
 
 
---  if ended then return ' ' 
---  else do stepAndCheckTM
-  
--- to run:
--- runState stepAndCheckTM testtm 
-
--- from Control.Monad.Loops
-whileM :: Monad m => m Bool -> m a -> m [a]
-whileM = whileM'
--- |Execute an action repeatedly as long as the given boolean expression
--- returns True. The condition is evaluated before the loop body.
--- Collects the results into an arbitrary 'MonadPlus' value.
-whileM' :: (Monad m, MonadPlus f) => m Bool -> m a -> m (f a)
-whileM' p f = go
-    where go = do
-            x <- p
-            if x
-                then do
-                        x  <- f
-                        xs <- go
-                        return (return x `mplus` xs)
-                else return mzero
 
 
 
