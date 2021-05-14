@@ -10,20 +10,27 @@ import Data.Word (Word8)
 
 -- keep track of tape length with tuple (pointer position, tape length so far)
 type Bound = (Int, Int)
+
 leftB :: Bound -> Bound
 leftB (x, y) = (x-1, y)
+
 rightB :: Bound -> Bound
 rightB (x, y) = (x+1, max y (x+1))
+
+type Byte = Word8
+
+byte2char :: Byte -> Char
+byte2char = chr . fromEnum
 
 -- a type for both the data tape and the instruction tape. 
 -- pointer is head of first list. left of pointer is field1[1], right of pointer is field2[0]
 -- [1 2 3 4 5 6]
 --      ^
 -- corresponds to Tape [3, 2, 1] [4, 5, 6] (2, 5)
-type Byte = Word8
 data Tape = Tape [Byte] [Byte] Bound
 
-zeroes = [0 | _ <- [1..]]
+zeroes :: [Byte]
+zeroes = repeat 0
 
 emptyTape :: Tape
 emptyTape = Tape [0] zeroes ((0, 0) :: Bound)
@@ -40,7 +47,10 @@ left (Tape (x:xs) ys b) = Tape xs (x:ys) (leftB b)
 right :: Tape -> Tape
 right (Tape xs (y:ys) b) = Tape (y:xs) ys (rightB b)
 
+ptrPos :: Tape -> Int
 ptrPos (Tape xs ys b) = fst b
+
+tapeLength :: Tape -> Int
 tapeLength (Tape xs ys b) = snd b
 
 -- read from pointer position
@@ -48,35 +58,35 @@ readTape :: Tape -> Byte
 readTape (Tape (ptr:xs) ys b) = ptr
 
 -- is byte at ptr 0?
-isZero :: Tape -> Bool
-isZero = (==0) . readTape
+pointsToZero :: Tape -> Bool
+pointsToZero = (==0) . readTape
 
-isChar :: Char -> Tape -> Bool
-isChar c = (==c) . chr . fromEnum . readTape
+pointsToChar :: Char -> Tape -> Bool
+pointsToChar c = (==c) . byte2char . readTape
+
+-- any operation on pointer position
+onPtr :: (Byte -> Byte) -> Tape -> Tape
+onPtr f (Tape (ptr:xs) ys b) = Tape ((f ptr):xs) ys b
 
 -- write to pointer position
 writeTape :: Byte -> Tape -> Tape
-writeTape n (Tape (ptr:xs) ys b) = Tape (n:xs) ys b
+writeTape = onPtr . const
 
 --increment, decrement the byte at ptr
-increment :: Tape -> Tape
-increment (Tape (ptr:xs) y b) = Tape ((ptr+1):xs) y b
+inc :: Tape -> Tape
+inc = onPtr (+1)
 
-decrement :: Tape -> Tape
-decrement (Tape (ptr:xs) y b) = Tape ((ptr-1):xs) y b
-
-inc = increment
-dec = decrement
+dec :: Tape -> Tape
+dec = onPtr (\x -> x-1) 
 
 instance Show Tape where
   show (Tape (ptr:xs) ys b) = show (reverse xs) ++ " " ++ show ptr ++ " " ++ show (take (snd b - fst b) ys)
 
 -- for the instruction tape
 show' (Tape (x:xx) yy b) = reverse xs ++ " " ++ [ptr] ++ " " ++ take (snd b - fst b) ys
-  where ptr = f x
-        xs  = map f xx
-        ys  = map f yy
-        f   = chr . fromEnum
+  where ptr = byte2char x
+        xs  = map byte2char xx
+        ys  = map byte2char yy
 
 -- ============================================================================
 -- Instruction Tape: reuse tape but add some functions
@@ -85,9 +95,9 @@ show' (Tape (x:xx) yy b) = reverse xs ++ " " ++ [ptr] ++ " " ++ take (snd b - fs
 -- same with [ and left, so parametrized. result points to the bracket, so this needs a right/left shift afterwards, like every other instr.
 seekAny dir charMatch charOther t = go 0 (dir t)
   where go n t
-          | n == 0 && isChar charMatch t = t
-          | isChar charMatch t           = go (n - 1) (dir t)
-          | isChar charOther t           = go (n + 1) (dir t)
+          | n == 0 && pointsToChar charMatch t = t
+          | pointsToChar charMatch t           = go (n - 1) (dir t)
+          | pointsToChar charOther t           = go (n + 1) (dir t)
           | otherwise                    = go n (dir t)
 
 seekRight :: Tape -> Tape
@@ -176,13 +186,13 @@ sInp byte = state (fInp byte)
 -- seek the next [ or the previous ]
 fFwd :: TM -> (Effect, TM)
 fFwd (TM d i)
-  | isZero d  = (None, TM d (seekRight i))
+  | pointsToZero d  = (None, TM d (seekRight i))
   | otherwise = (None, (TM d i))
 sFwd = state fFwd
 
 fBwd :: TM -> (Effect, TM)
 fBwd (TM d i)
-  | not $ isZero d = (None, TM d (seekLeft i))
+  | not $ pointsToZero d = (None, TM d (seekLeft i))
   | otherwise = (None, (TM d i))
 sBwd = state fBwd
 
@@ -229,9 +239,9 @@ whileM' p f = go
           else return mzero
 
 -- from instruction character, resolve which action to take next.
-chooseAction :: Enum a => a -> State TM Effect
+chooseAction :: Byte -> State TM Effect
 chooseAction instr = 
-  case chr . fromEnum $ instr of 
+  case byte2char $ instr of 
     '>' -> sRight
     '<' -> sLeft
     '+' -> sInc
@@ -257,7 +267,7 @@ combineEffects ms = go "" ms
   where
     go str [] = str
     go str ((None):xs) = go str xs
-    go str ((Result byte):xs) = go (str ++ [(chr . fromEnum $ byte)]) xs
+    go str ((Result byte):xs) = go (str ++ [(byte2char $ byte)]) xs
 
 -- run a tm and print its result and states
 runTM tm = (combineEffects (fst tup), (snd tup)) 
