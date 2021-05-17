@@ -36,7 +36,7 @@ emptyTape :: Tape
 emptyTape = Tape [0] zeroes ((0, 0) :: Bound)
 
 initTape :: [Byte] -> Tape
-initTape (x:xs) = Tape [x] (xs++zeroes) ((0, length xs) :: Bound)
+initTape (x:xs) = Tape [x] (xs ++ zeroes) ((0, length xs) :: Bound)
 
 -- shift pointer by one
 left :: Tape -> Tape
@@ -48,14 +48,14 @@ right :: Tape -> Tape
 right (Tape xs (y:ys) b) = Tape (y:xs) ys (rightB b)
 
 ptrPos :: Tape -> Int
-ptrPos (Tape xs ys b) = fst b
+ptrPos (Tape _ _ b) = fst b
 
 tapeLength :: Tape -> Int
-tapeLength (Tape xs ys b) = snd b
+tapeLength (Tape _ _ b) = snd b
 
 -- read from pointer position
 readTape :: Tape -> Byte
-readTape (Tape (ptr:xs) ys b) = ptr
+readTape (Tape (ptr:_) _ _) = ptr
 
 -- is byte at ptr 0?
 pointsToZero :: Tape -> Bool
@@ -154,7 +154,8 @@ data Effect = None | Result Byte
 isNone None = True
 isNone _    = False
 
--- these seem a bit verbose.. is this necessary? is there a better way?
+onTape :: (Tape -> Tape) -> TM -> (Effect, TM)
+onTape f (TM d i) = TM 
 
 -- shift data tape
 fRight :: TM -> (Effect, TM)
